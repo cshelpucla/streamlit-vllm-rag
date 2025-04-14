@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>orders.sql</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/orders.sql</div>
+        <pre>-- Orders table definition
+-- Tracks all customer orders placed in the system
+CREATE TABLE ORDERS (
+    order_id INT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    order_date DATETIME NOT NULL,
+    total_amount DECIMAL(10, 2) DEFAULT 0.00,
+    status VARCHAR(20) NOT NULL DEFAULT &#x27;pending&#x27;,
+    shipping_address TEXT,
+    shipping_method VARCHAR(50),
+    tracking_number VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES CUSTOMERS(customer_id)
+);
+
+-- Create indexes to improve query performance
+CREATE INDEX idx_orders_customer ON ORDERS(customer_id);
+CREATE INDEX idx_orders_date ON ORDERS(order_date);
+CREATE INDEX idx_orders_status ON ORDERS(status);
+
+-- Orders audit trigger
+CREATE TRIGGER after_order_update
+AFTER UPDATE ON ORDERS
+FOR EACH ROW
+BEGIN
+    INSERT INTO order_history (order_id, field_changed, old_value, new_value, changed_at)
+    VALUES (NEW.order_id, &#x27;status&#x27;, OLD.status, NEW.status, NOW());
+END;
+</pre>
+    </div>
+</body>
+</html>

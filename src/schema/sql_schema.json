@@ -1,0 +1,78 @@
+{
+  "entities": [
+    {
+      "entity_type": "Table",
+      "properties": ["Name of the SQL table", "Purpose", "Schema/Database it belongs to"]
+    },
+    {
+      "entity_type": "Column",
+      "properties": ["Name of the column", "Data type", "Constraints", "Description"]
+    },
+    {
+      "entity_type": "View",
+      "properties": ["Name of the SQL view", "Purpose", "Base tables"]
+    },
+    {
+      "entity_type": "Index",
+      "properties": ["Name of the index", "Type of index", "Indexed columns"]
+    },
+    {
+      "entity_type": "Constraint",
+      "properties": ["Name of constraint", "Type (PK, FK, UNIQUE, CHECK)", "Description"]
+    },
+    {
+      "entity_type": "StoredProcedure",
+      "properties": ["Name of the stored procedure", "Purpose", "Parameters"]
+    },
+    {
+      "entity_type": "Function",
+      "properties": ["Name of the SQL function", "Return type", "Parameters"]
+    },
+    {
+      "entity_type": "Trigger",
+      "properties": ["Name of the trigger", "Triggered event", "Timing", "Table affected"]
+    },
+    {
+      "entity_type": "Query",
+      "properties": ["Type of query (SELECT, INSERT, UPDATE, DELETE)", "Tables involved", "Purpose"]
+    }
+  ],
+  "relations": [
+    {
+      "rel_type": "HAS_COLUMN",
+      "properties": ["Source table", "Target column"]
+    },
+    {
+      "rel_type": "REFERENCES",
+      "properties": ["Source column/constraint", "Target table", "Target column"]
+    },
+    {
+      "rel_type": "JOINED_WITH",
+      "properties": ["Source table", "Target table", "Join condition", "Join type"]
+    },
+    {
+      "rel_type": "INDEXES",
+      "properties": ["Source index", "Target table", "Target columns"]
+    },
+    {
+      "rel_type": "DEPENDS_ON",
+      "properties": ["Source object (view, procedure, etc.)", "Target object (table, view, etc.)"]
+    },
+    {
+      "rel_type": "TRIGGERS_ON",
+      "properties": ["Source trigger", "Target table", "Event type"]
+    },
+    {
+      "rel_type": "USES_TABLE",
+      "properties": ["Source query/procedure/function", "Target table", "Operation type"]
+    },
+    {
+      "rel_type": "RETURNS_COLUMN",
+      "properties": ["Source query/procedure/function", "Column name", "Data type"]
+    },
+    {
+      "rel_type": "ENFORCES",
+      "properties": ["Source constraint", "Target table/column", "Rule enforced"]
+    }
+  ]
+}

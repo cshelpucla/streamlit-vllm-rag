@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>layout.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/layout.py</div>
+        <pre>import dash_bootstrap_components as dbc
+from dash import html, dcc
+
+def create_layout():
+    &quot;&quot;&quot;Creates the Dash application layout with a sidebar and main content area.&quot;&quot;&quot;
+
+    # Define the sidebar content (Steps 1 and 2)
+    sidebar = dbc.Col([
+        html.H4(&quot;Indexing Controls&quot;, className=&quot;text-center mb-3&quot;),
+        dbc.Card([
+            dbc.CardHeader(&quot;Step 1: Select Python Code Directory&quot;),
+            dbc.CardBody([
+                dcc.Upload(
+                    id=&#x27;upload-directory&#x27;,
+                    children=html.Div([
+                        &#x27;Drag and Drop Directory or &#x27;,
+                        html.A(&#x27;Select Directory&#x27;)
+                    ]),
+                    style={
+                        &#x27;width&#x27;: &#x27;100%&#x27;,
+                        &#x27;height&#x27;: &#x27;60px&#x27;,
+                        &#x27;lineHeight&#x27;: &#x27;60px&#x27;,
+                        &#x27;borderWidth&#x27;: &#x27;1px&#x27;,
+                        &#x27;borderStyle&#x27;: &#x27;dashed&#x27;,
+                        &#x27;borderRadius&#x27;: &#x27;5px&#x27;,
+                        &#x27;textAlign&#x27;: &#x27;center&#x27;,
+                        &#x27;margin&#x27;: &#x27;10px 0&#x27; # Adjusted margin
+                    },
+                    multiple=True
+                ),
+                html.Div(id=&#x27;upload-status&#x27;),
+                dbc.Input(
+                    id=&quot;directory-path-input&quot;,
+                    placeholder=&quot;Or type directory path here...&quot;,
+                    type=&quot;text&quot;,
+                    className=&quot;mt-2&quot;
+                ),
+                html.Div(id=&#x27;file-list-container&#x27;, className=&quot;mt-3&quot;, style={&#x27;maxHeight&#x27;: &#x27;150px&#x27;, &#x27;overflowY&#x27;: &#x27;auto&#x27;}), # Added scroll
+            ])
+        ], className=&quot;mb-4&quot;),
+
+        dbc.Card([
+            dbc.CardHeader(&quot;Step 2: Index Python Files&quot;),
+            dbc.CardBody([
+                dbc.Label(&quot;Select Indexing Method:&quot;), # Added label
+                dbc.RadioItems( # Added RadioItems for selection
+                    options=[
+                        {&#x27;label&#x27;: &#x27;Vector Store (ChromaDB)&#x27;, &#x27;value&#x27;: &#x27;vector&#x27;},
+                        {&#x27;label&#x27;: &#x27;Property Graph (Simple)&#x27;, &#x27;value&#x27;: &#x27;graph&#x27;},
+                    ],
+                    value=&#x27;vector&#x27;, # Default value
+                    id=&#x27;indexing-method-radio&#x27;,
+                    inline=True, # Display options horizontally
+                    className=&quot;mb-3&quot; # Add margin below
+                ),
+                dbc.Button(&quot;Index Files&quot;, id=&quot;index-button&quot;, color=&quot;primary&quot;, className=&quot;w-100&quot;), # Full width button
+                html.Div(id=&#x27;indexing-status&#x27;, className=&quot;mt-3&quot;)
+            ])
+        ], className=&quot;mb-4&quot;),
+    ], width=4, className=&quot;bg-light p-4&quot;, style={&#x27;height&#x27;: &#x27;100vh&#x27;, &#x27;overflowY&#x27;: &#x27;auto&#x27;}) # Sidebar styling
+
+    # Define the main content area (Step 3)
+    content = dbc.Col([
+        html.H4(&quot;Query Your Codebase&quot;, className=&quot;text-center mb-3&quot;),
+        dbc.Card([
+            dbc.CardHeader(&quot;Step 3: Query Python Code&quot;),
+            dbc.CardBody([
+                dbc.Textarea(
+                    id=&quot;query-input&quot;,
+                    placeholder=&quot;Ask a question about your Python code...&quot;,
+                    style={&quot;height&quot;: &quot;150px&quot;} # Increased height
+                ),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Button(&quot;Submit Query&quot;, id=&quot;query-button&quot;, color=&quot;success&quot;, className=&quot;mt-3 w-100&quot;), # Full width button
+                    ], width=9),
+                    dbc.Col([
+                        dbc.Button(&quot;Cancel&quot;, id=&quot;cancel-query-button&quot;, color=&quot;danger&quot;, className=&quot;mt-3 w-100&quot;, disabled=True), # Cancel button
+                    ], width=3),
+                ]),
+                # Add loading spinner for query execution
+                dbc.Spinner(
+                    id=&quot;query-spinner&quot;,
+                    color=&quot;primary&quot;,
+                    type=&quot;grow&quot;,
+                    fullscreen=False,
+                    children=html.Div(id=&quot;spinner-container&quot;, style={&quot;height&quot;: &quot;50px&quot;, &quot;display&quot;: &quot;none&quot;}),
+                    spinner_style={&quot;width&quot;: &quot;3rem&quot;, &quot;height&quot;: &quot;3rem&quot;}
+                ),
+                html.Div(id=&#x27;query-results&#x27;, className=&quot;mt-4&quot;, style={&#x27;maxHeight&#x27;: &#x27;calc(100vh - 350px)&#x27;, &#x27;overflowY&#x27;: &#x27;auto&#x27;}) # Adjusted height and scroll
+            ])
+        ])
+    ], width=8, className=&quot;p-4&quot;) # Content area padding
+
+    # Combine sidebar and content within the main layout
+    layout = dbc.Container([
+        dbc.Row([
+            dbc.Col(html.H1(&quot;Python Code RAG System (Refactored)&quot;, className=&quot;my-4 text-center&quot;))
+        ]),
+        dbc.Row([
+            sidebar,
+            content
+        ], className=&quot;g-0&quot;) # g-0 removes gutters between columns for seamless look
+    ], fluid=True) # Use fluid container for full width
+
+    return layout
+</pre>
+    </div>
+</body>
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>build_graph.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/build_graph.py</div>
+        <pre>
+import logging
+import sys
+import os
+
+# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+# logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+
+from llama_index.core import SimpleDirectoryReader, PropertyGraphIndex, Settings
+from llama_index.core.graph_stores.types import Entity, Relation, Property
+from llama_index.llms.openai import OpenAI # Or your preferred LLM
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding # Or your preferred embedding model
+# from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore # Example for Neo4j
+
+# --- Configuration ---
+# Make sure OPENAI_API_KEY is set in your environment variables
+# Or configure LLM/embeddings manually:
+# Settings.llm = OpenAI(model=&quot;gpt-4o-mini&quot;) # Or other LLM
+# Settings.embed_model = HuggingFaceEmbedding(model_name=&quot;BAAI/bge-small-en-v1.5&quot;)
+
+# Optional: Configure Graph Store (e.g., Neo4j)
+# NEO4J_URI = os.getenv(&quot;NEO4J_URI&quot;, &quot;bolt://localhost:7687&quot;)
+# NEO4J_USERNAME = os.getenv(&quot;NEO4J_USERNAME&quot;, &quot;neo4j&quot;)
+# NEO4J_PASSWORD = os.getenv(&quot;NEO4J_PASSWORD&quot;, &quot;password&quot;)
+# graph_store = Neo4jPropertyGraphStore(
+#     username=NEO4J_USERNAME,
+#     password=NEO4J_PASSWORD,
+#     url=NEO4J_URI,
+# )
+# Use default in-memory store if graph_store is not defined
+graph_store = None
+
+# --- Define Graph Schema for Python Code ---
+entities = [
+    Entity(&quot;Module&quot;, [&quot;Name of the Python module&quot;]),
+    Entity(&quot;Class&quot;, [&quot;Name of the class defined in the code&quot;]),
+    Entity(&quot;Function&quot;, [&quot;Name of the function or method defined&quot;]),
+    Entity(&quot;Method&quot;, [&quot;Name of a method defined within a class&quot;]),
+    Entity(&quot;Variable&quot;, [&quot;Name of a variable or attribute&quot;]),
+    Entity(&quot;Import&quot;, [&quot;Name of the imported module or object&quot;]),
+    Entity(&quot;CodeLine&quot;, [&quot;An individual line of code&quot;]),
+    Entity(&quot;DocString&quot;, [&quot;Documentation string for a module, class, function, or method&quot;]),
+    Entity(&quot;Argument&quot;, [&quot;Function or method argument&quot;]),
+]
+
+relations = [
+    Relation(&quot;IMPORTS&quot;, [&quot;Relation indicating a module imports another module or object&quot;]),
+    Relation(&quot;DEFINES_CLASS&quot;, [&quot;Relation indicating a module defines a class&quot;]),
+    Relation(&quot;DEFINES_FUNCTION&quot;, [&quot;Relation indicating a module defines a function&quot;]),
+    Relation(&quot;DEFINES_METHOD&quot;, [&quot;Relation indicating a class defines a method&quot;]),
+    Relation(&quot;DEFINES_VARIABLE&quot;, [&quot;Relation indicating a module, class, or function defines a variable&quot;]),
+    Relation(&quot;CALLS_FUNCTION&quot;, [&quot;Relation indicating a function calls another function&quot;]),
+    Relation(&quot;HAS_ATTRIBUTE&quot;, [&quot;Relation indicating a class has a specific attribute (variable or method)&quot;]),
+    Relation(&quot;INSTANCE_OF&quot;, [&quot;Relation indicating a variable is an instance of a class&quot;]),
+    Relation(&quot;INHERITS_FROM&quot;, [&quot;Relation indicating a class inherits from another class&quot;]),
+    Relation(&quot;HAS_DOCSTRING&quot;, [&quot;Relation indicating an entity has a documentation string&quot;]),
+    Relation(&quot;CONTAINS_LINE&quot;, [&quot;Relation indicating a module, class, function, or method contains a specific line of code&quot;]),
+    Relation(&quot;HAS_ARGUMENT&quot;, [&quot;Relation indicating a function or method has a specific argument&quot;]),
+    Relation(&quot;LINE_NUMBER&quot;, [&quot;Relation associating an entity with its line number in the source file&quot;]),
+    Relation(&quot;FOLLOWS&quot;, [&quot;Relation indicating a code line follows another code line&quot;]),
+]
+
+# --- Load Python Code using AST Parser ---
+from src.ast_parser import parse_python_files, parse_python_file
+from llama_index.core import Document
+from llama_index.core.graph_stores.types import EntityNode, Property
+import re
+
+# Assuming your code is in the &#x27;src&#x27; directory relative to the script&#x27;s location
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir) # Go up one level from src
+code_dir = os.path.join(project_root, &quot;src&quot;)
+
+print(f&quot;Loading Python files from: {code_dir}&quot;)
+all_documents = []
+
+try:
+    # Process Python files with AST parser
+    print(&quot;Processing Python files with AST parser for detailed graph indexing...&quot;)
+    python_files_info = parse_python_files(code_dir)
+    print(f&quot;Parsed {len(python_files_info)} Python files with AST parser.&quot;)
+    
+    for file_info in python_files_info:
+        file_path = file_info[&#x27;path&#x27;]
+        
+        # Create a base document for the module
+        module_doc = Document(
+            text=f&quot;Module: {file_info[&#x27;name&#x27;]}&quot;,
+            metadata={
+                &quot;file_path&quot;: file_path,
+                &quot;entity_type&quot;: &quot;Module&quot;,
+                &quot;name&quot;: file_info[&#x27;name&#x27;],
+            }
+        )
+        all_documents.append(module_doc)
+        
+        # Process line by line to create CodeLine entities
+        try:
+            with open(file_path, &#x27;r&#x27;, encoding=&#x27;utf-8&#x27;) as f:
+                lines = f.readlines()
+                
+                for i, line in enumerate(lines):
+                    line_num = i + 1  # 1-based line numbering
+                    line_doc = Document(
+                        text=line.rstrip(),
+                        metadata={
+                            &quot;file_path&quot;: file_path,
+                            &quot;entity_type&quot;: &quot;CodeLine&quot;,
+                            &quot;line_number&quot;: line_num,
+                            &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                        }
+                    )
+                    all_documents.append(line_doc)
+        except Exception as e:
+            print(f&quot;Error processing lines in {file_path}: {e}&quot;)
+        
+        # Add docstring if available
+        if file_info.get(&#x27;doc_string&#x27;):
+            docstring_doc = Document(
+                text=file_info[&#x27;doc_string&#x27;],
+                metadata={
+                    &quot;file_path&quot;: file_path,
+                    &quot;entity_type&quot;: &quot;DocString&quot;,
+                    &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                    &quot;owner_type&quot;: &quot;Module&quot;,
+                    &quot;owner_name&quot;: file_info[&#x27;name&#x27;],
+                }
+            )
+            all_documents.append(docstring_doc)
+        
+        # Process imports
+        for imp in file_info.get(&#x27;imports&#x27;, []):
+            import_doc = Document(
+                text=f&quot;Import: {imp[&#x27;name&#x27;]}&quot; + (f&quot; as {imp[&#x27;alias&#x27;]}&quot; if imp[&#x27;alias&#x27;] else &quot;&quot;),
+                metadata={
+                    &quot;file_path&quot;: file_path,
+                    &quot;entity_type&quot;: &quot;Import&quot;,
+                    &quot;name&quot;: imp[&#x27;name&#x27;],
+                    &quot;alias&quot;: imp[&#x27;alias&#x27;],
+                    &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                }
+            )
+            all_documents.append(import_doc)
+        
+        # Process classes
+        for cls in file_info.get(&#x27;classes&#x27;, []):
+            class_doc = Document(
+                text=f&quot;Class: {cls[&#x27;name&#x27;]}&quot; + (f&quot; ({&#x27;, &#x27;.join(cls[&#x27;base_classes&#x27;])})&quot; if cls[&#x27;base_classes&#x27;] else &quot;&quot;),
+                metadata={
+                    &quot;file_path&quot;: file_path,
+                    &quot;entity_type&quot;: &quot;Class&quot;,
+                    &quot;name&quot;: cls[&#x27;name&#x27;],
+                    &quot;base_classes&quot;: &quot;,&quot;.join(cls[&#x27;base_classes&#x27;]),
+                    &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                    &quot;line_number&quot;: cls[&#x27;lineno&#x27;],
+                }
+            )
+            all_documents.append(class_doc)
+            
+            # Add class docstring if available
+            if cls.get(&#x27;doc_string&#x27;):
+                cls_docstring_doc = Document(
+                    text=cls[&#x27;doc_string&#x27;],
+                    metadata={
+                        &quot;file_path&quot;: file_path,
+                        &quot;entity_type&quot;: &quot;DocString&quot;,
+                        &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                        &quot;owner_type&quot;: &quot;Class&quot;,
+                        &quot;owner_name&quot;: cls[&#x27;name&#x27;],
+                    }
+                )
+                all_documents.append(cls_docstring_doc)
+            
+            # Process methods
+            for method in cls.get(&#x27;methods&#x27;, []):
+                args_str = &quot;, &quot;.join([arg[&#x27;name&#x27;] for arg in method[&#x27;args&#x27;]])
+                method_doc = Document(
+                    text=f&quot;Method: {method[&#x27;name&#x27;]}({args_str}) in class {cls[&#x27;name&#x27;]}&quot;,
+                    metadata={
+                        &quot;file_path&quot;: file_path,
+                        &quot;entity_type&quot;: &quot;Method&quot;,
+                        &quot;name&quot;: method[&#x27;name&#x27;],
+                        &quot;class_name&quot;: cls[&#x27;name&#x27;],
+                        &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                        &quot;line_number&quot;: method[&#x27;lineno&#x27;],
+                    }
+                )
+                all_documents.append(method_doc)
+                
+                # Add method docstring if available
+                if method.get(&#x27;doc_string&#x27;):
+                    method_docstring_doc = Document(
+                        text=method[&#x27;doc_string&#x27;],
+                        metadata={
+                            &quot;file_path&quot;: file_path,
+                            &quot;entity_type&quot;: &quot;DocString&quot;,
+                            &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                            &quot;owner_type&quot;: &quot;Method&quot;,
+                            &quot;owner_name&quot;: method[&#x27;name&#x27;],
+                            &quot;class_name&quot;: cls[&#x27;name&#x27;],
+                        }
+                    )
+                    all_documents.append(method_docstring_doc)
+                
+                # Process method arguments
+                for arg in method.get(&#x27;args&#x27;, []):
+                    arg_doc = Document(
+                        text=f&quot;Argument: {arg[&#x27;name&#x27;]} in method {method[&#x27;name&#x27;]}&quot;,
+                        metadata={
+                            &quot;file_path&quot;: file_path,
+                            &quot;entity_type&quot;: &quot;Argument&quot;,
+                            &quot;name&quot;: arg[&#x27;name&#x27;],
+                            &quot;method_name&quot;: method[&#x27;name&#x27;],
+                            &quot;class_name&quot;: cls[&#x27;name&#x27;],
+                            &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                            &quot;annotation&quot;: arg.get(&#x27;annotation&#x27;),
+                            &quot;has_default&quot;: arg.get(&#x27;default&#x27;) is not None,
+                        }
+                    )
+                    all_documents.append(arg_doc)
+        
+        # Process functions
+        for func in file_info.get(&#x27;functions&#x27;, []):
+            args_str = &quot;, &quot;.join([arg[&#x27;name&#x27;] for arg in func[&#x27;args&#x27;]])
+            func_doc = Document(
+                text=f&quot;Function: {func[&#x27;name&#x27;]}({args_str})&quot;,
+                metadata={
+                    &quot;file_path&quot;: file_path,
+                    &quot;entity_type&quot;: &quot;Function&quot;,
+                    &quot;name&quot;: func[&#x27;name&#x27;],
+                    &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                    &quot;line_number&quot;: func[&#x27;lineno&#x27;],
+                    &quot;description&quot;: func.get(&#x27;description&#x27;, &#x27;&#x27;),
+                }
+            )
+            all_documents.append(func_doc)
+            
+            # Add function docstring if available
+            if func.get(&#x27;doc_string&#x27;):
+                func_docstring_doc = Document(
+                    text=func[&#x27;doc_string&#x27;],
+                    metadata={
+                        &quot;file_path&quot;: file_path,
+                        &quot;entity_type&quot;: &quot;DocString&quot;,
+                        &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                        &quot;owner_type&quot;: &quot;Function&quot;,
+                        &quot;owner_name&quot;: func[&#x27;name&#x27;],
+                    }
+                )
+                all_documents.append(func_docstring_doc)
+            
+            # Process function arguments
+            for arg in func.get(&#x27;args&#x27;, []):
+                arg_doc = Document(
+                    text=f&quot;Argument: {arg[&#x27;name&#x27;]} in function {func[&#x27;name&#x27;]}&quot;,
+                    metadata={
+                        &quot;file_path&quot;: file_path,
+                        &quot;entity_type&quot;: &quot;Argument&quot;,
+                        &quot;name&quot;: arg[&#x27;name&#x27;],
+                        &quot;function_name&quot;: func[&#x27;name&#x27;],
+                        &quot;module_name&quot;: file_info[&#x27;name&#x27;],
+                        &quot;annotation&quot;: arg.get(&#x27;annotation&#x27;),
+                        &quot;has_default&quot;: arg.get(&#x27;default&#x27;) is not None,
+                    }
+                )
+                all_documents.append(arg_doc)
+    
+    # Also load SQL files using SimpleDirectoryReader
+    reader = SimpleDirectoryReader(
+        input_dir=project_root,
+        required_exts=[&quot;.sql&quot;],
+        recursive=True,
+    )
+    sql_documents = reader.load_data()
+    print(f&quot;Loaded {len(sql_documents)} SQL documents.&quot;)
+    
+    # Add SQL documents to all_documents
+    for doc in sql_documents:
+        doc.metadata[&quot;entity_type&quot;] = &quot;SQLScript&quot;
+        all_documents.append(doc)
+    
+    print(f&quot;Total documents for graph indexing: {len(all_documents)}&quot;)
+    
+    if not all_documents:
+        print(&quot;No documents found. Please check the directory paths.&quot;)
+        sys.exit(1)
+except Exception as e:
+    print(f&quot;Error processing files: {e}&quot;)
+    sys.exit(1)
+
+# --- Build the Property Graph Index ---
+print(&quot;Building Property Graph Index with enhanced code structure...&quot;)
+index = PropertyGraphIndex.from_documents(
+    all_documents,
+    llm=Settings.llm, # Uses default OpenAI if not set otherwise
+    embed_model=Settings.embed_model, # Uses default OpenAI embedding if not set otherwise
+    property_graph_store=graph_store,
+    entities=entities,
+    relations=relations,
+    include_embeddings=True,
+    show_progress=True,
+)
+
+print(&quot;Property Graph Index built successfully.&quot;)
+
+# --- Optional: Persist Index (if using a persistent store) ---
+# if graph_store:
+#     index.storage_context.persist(persist_dir=&quot;./storage_graph&quot;)
+#     print(&quot;Index persisted.&quot;)
+
+# --- Optional: Example Query ---
+# retriever = index.as_retriever()
+# nodes = retriever.retrieve(&quot;What classes are defined in layout.py?&quot;)
+# for node in nodes:
+#     print(node.text)
+
+# query_engine = index.as_query_engine()
+# response = query_engine.query(&quot;Show me the functions defined in the Query class.&quot;)
+# print(response)
+
+print(&quot;Script finished.&quot;)
+
+</pre>
+    </div>
+</body>
+</html>

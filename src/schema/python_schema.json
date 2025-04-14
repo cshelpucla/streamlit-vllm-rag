@@ -1,0 +1,166 @@
+{
+  "entities": [
+    {
+      "entity_type": "Module",
+      "properties": ["Name of the Python module", "Purpose and functionality", "Import dependencies", "File path", "Package hierarchy"]
+    },
+    {
+      "entity_type": "Class",
+      "properties": ["Name of the class defined in the code", "Purpose and responsibility", "Base classes", "Decorators", "Docstring", "Is abstract", "Is dataclass", "Metaclass"]
+    },
+    {
+      "entity_type": "Function",
+      "properties": ["Name of the function or method defined", "Purpose", "Parameters", "Return value", "Return type annotation", "Decorators", "Docstring", "Is async", "Is generator", "Is method", "Is static method", "Is class method", "Is property"]
+    },
+    {
+      "entity_type": "Variable",
+      "properties": ["Name of a variable or attribute", "Data type", "Purpose", "Type annotation", "Default value", "Is constant", "Scope"]
+    },
+    {
+      "entity_type": "Import",
+      "properties": ["Name of the imported module or object", "Import path", "Alias if any", "Is relative import", "Import level"]
+    },
+    {
+      "entity_type": "Decorator",
+      "properties": ["Name", "Target (function or class)", "Arguments", "Source module"]
+    },
+    {
+      "entity_type": "Exception",
+      "properties": ["Name of the exception class", "Parent exception class", "Purpose", "Custom attributes"]
+    },
+    {
+      "entity_type": "TypeAlias",
+      "properties": ["Name of the type alias", "Referenced type(s)", "Is generic"]
+    },
+    {
+      "entity_type": "Parameter",
+      "properties": ["Name", "Type annotation", "Default value", "Is variadic", "Is keyword only", "Is positional only"]
+    },
+    {
+      "entity_type": "Enum",
+      "properties": ["Name", "Values", "Base type"]
+    },
+    {
+      "entity_type": "NamedTuple",
+      "properties": ["Name", "Fields", "Field types", "Docstring"]
+    },
+    {
+      "entity_type": "ContextManager",
+      "properties": ["Name", "Enter method", "Exit method", "Purpose"]
+    },
+    {
+      "entity_type": "Protocol",
+      "properties": ["Name", "Required methods", "Required attributes", "Docstring", "Is runtime checkable"]
+    },
+    {
+      "entity_type": "TypedDict",
+      "properties": ["Name", "Fields", "Field types", "Is total", "Docstring"]
+    },
+    {
+      "entity_type": "Annotation",
+      "properties": ["Target entity", "Annotation type", "Is forward reference", "Is optional"]
+    },
+    {
+      "entity_type": "Comprehension",
+      "properties": ["Type (list, dict, set, generator)", "Target expression", "Source iterables", "Conditions"]
+    },
+    {
+      "entity_type": "AsyncComponent",
+      "properties": ["Name", "Type (function, method, generator, comprehension)", "Awaits", "Is awaitable"]
+    },
+    {
+      "entity_type": "FString",
+      "properties": ["Template", "Expressions", "Format specifiers", "Conversion flags"]
+    },
+    {
+      "entity_type": "Match",
+      "properties": ["Subject expression", "Case patterns", "Guard conditions", "Result expressions"]
+    },
+    {
+      "entity_type": "Doctest",
+      "properties": ["Parent entity", "Test examples", "Expected outputs"]
+    }
+  ],
+  "relations": [
+    {
+      "rel_type": "IMPORTS",
+      "properties": ["Source module", "Target module/object imported", "Import type (e.g. direct, from)", "Is conditional import", "Import level"]
+    },
+    {
+      "rel_type": "DEFINES_CLASS",
+      "properties": ["Source module", "Target class defined"]
+    },
+    {
+      "rel_type": "DEFINES_FUNCTION",
+      "properties": ["Source (module or class)", "Target function/method defined"]
+    },
+    {
+      "rel_type": "DEFINES_VARIABLE",
+      "properties": ["Source (module, class, or function)", "Target variable defined"]
+    },
+    {
+      "rel_type": "CALLS_FUNCTION",
+      "properties": ["Source function", "Target function called", "Parameters passed"]
+    },
+    {
+      "rel_type": "HAS_ATTRIBUTE",
+      "properties": ["Source class", "Target attribute (variable or method)"]
+    },
+    {
+      "rel_type": "INSTANCE_OF",
+      "properties": ["Source variable", "Target class instantiated"]
+    },
+    {
+      "rel_type": "INHERITS_FROM",
+      "properties": ["Source class", "Target parent class"]
+    },
+    {
+      "rel_type": "RAISES_EXCEPTION",
+      "properties": ["Source function", "Exception type", "Condition"]
+    },
+    {
+      "rel_type": "HANDLES_EXCEPTION",
+      "properties": ["Source function", "Exception type", "Action"]
+    },
+    {
+      "rel_type": "ACCESSED_BY",
+      "properties": ["Target variable/attribute", "Source function/method"]
+    },
+    {
+      "rel_type": "MODIFIED_BY",
+      "properties": ["Target variable/attribute", "Source function/method", "Modification type"]
+    },
+    {
+      "rel_type": "RETURNS",
+      "properties": ["Source function", "Return value/type"]
+    },
+    {
+      "rel_type": "IMPLEMENTS_PROTOCOL",
+      "properties": ["Source class", "Target protocol", "Implementation completeness"]
+    },
+    {
+      "rel_type": "DEPENDS_ON",
+      "properties": ["Source entity", "Target entity", "Dependency type"]
+    },
+    {
+      "rel_type": "ANNOTATED_AS",
+      "properties": ["Source entity", "Type annotation"]
+    },
+    {
+      "rel_type": "DECORATED_BY",
+      "properties": ["Source function/class", "Decorator", "Order"]
+    },
+    {
+      "rel_type": "YIELDS",
+      "properties": ["Source generator", "Yielded value/type"]
+    },
+    {
+      "rel_type": "AWAITS",
+      "properties": ["Source async function", "Awaited coroutine"]
+    },
+    {
+      "rel_type": "CREATES_CONTEXT",
+      "properties": ["Source context manager", "Managed resources", "Setup actions", "Cleanup actions"]
+    }
+  ]
+}

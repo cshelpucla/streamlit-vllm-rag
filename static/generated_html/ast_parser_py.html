@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ast_parser.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/ast_parser.py</div>
+        <pre>import ast
+import os
+from typing import Dict, List, Any, Optional
+
+
+class PythonAstParser:
+    &quot;&quot;&quot;
+    A parser that uses the Python AST module to analyze Python code files and extract
+    structured information about classes, functions, methods, and their relationships.
+    &quot;&quot;&quot;
+    
+    def __init__(self):
+        self.file_info = {}
+        
+    def parse_file(self, file_path: str) -&gt; Dict[str, Any]:
+        &quot;&quot;&quot;
+        Parse a Python file and extract its structure using AST.
+        
+        Args:
+            file_path (str): Path to the Python file to parse
+            
+        Returns:
+            Dict[str, Any]: Structured information about the file
+        &quot;&quot;&quot;
+        try:
+            with open(file_path, &#x27;r&#x27;, encoding=&#x27;utf-8&#x27;) as file:
+                code = file.read()
+                
+            # Parse the code into an AST
+            tree = ast.parse(code)
+            
+            # Extract file-level information
+            file_info = {
+                &#x27;path&#x27;: file_path,
+                &#x27;name&#x27;: os.path.basename(file_path),
+                &#x27;imports&#x27;: [],
+                &#x27;classes&#x27;: [],
+                &#x27;functions&#x27;: [],
+                &#x27;doc_string&#x27;: ast.get_docstring(tree),
+            }
+            
+            # First, extract top-level definitions directly from the module body
+            for node in tree.body:
+                # Extract top-level imports
+                if isinstance(node, ast.Import):
+                    for name in node.names:
+                        file_info[&#x27;imports&#x27;].append({
+                            &#x27;name&#x27;: name.name,
+                            &#x27;alias&#x27;: name.asname
+                        })
+                        
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or &#x27;&#x27;
+                    for name in node.names:
+                        file_info[&#x27;imports&#x27;].append({
+                            &#x27;name&#x27;: f&quot;{module}.{name.name}&quot;,
+                            &#x27;alias&#x27;: name.asname
+                        })
+                
+                # Extract top-level functions
+                elif isinstance(node, ast.FunctionDef):
+                    function_info = {
+                        &#x27;name&#x27;: node.name,
+                        &#x27;args&#x27;: self._extract_args(node.args),
+                        &#x27;doc_string&#x27;: ast.get_docstring(node),
+                        &#x27;lineno&#x27;: node.lineno
+                    }
+                    file_info[&#x27;functions&#x27;].append(function_info)
+                
+                # Extract top-level classes
+                elif isinstance(node, ast.ClassDef):
+                    class_info = {
+                        &#x27;name&#x27;: node.name,
+                        &#x27;base_classes&#x27;: [self._get_name(base) for base in node.bases],
+                        &#x27;methods&#x27;: [],
+                        &#x27;doc_string&#x27;: ast.get_docstring(node),
+                        &#x27;lineno&#x27;: node.lineno
+                    }
+                    
+                    # Find methods in the class
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            method_info = {
+                                &#x27;name&#x27;: item.name,
+                                &#x27;args&#x27;: self._extract_args(item.args),
+                                &#x27;doc_string&#x27;: ast.get_docstring(item),
+                                &#x27;lineno&#x27;: item.lineno
+                            }
+                            class_info[&#x27;methods&#x27;].append(method_info)
+                    
+                    file_info[&#x27;classes&#x27;].append(class_info)
+            
+            # Extract additional information using ast.walk for more comprehensive analysis
+            for node in ast.walk(tree):
+                # Check for decorators on functions or methods
+                if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+                    # Extract decorator information if present
+                    if node.decorator_list:
+                        decorators = []
+                        for decorator in node.decorator_list:
+                            decorator_name = self._get_name(decorator)
+                            decorators.append(decorator_name)
+                        
+                        # Find the function in either functions or methods and add decorator info
+                        for func in file_info[&#x27;functions&#x27;]:
+                            if func[&#x27;name&#x27;] == node.name and &#x27;decorators&#x27; not in func:
+                                func[&#x27;decorators&#x27;] = decorators
+                        
+                        # Check methods in all classes
+                        for cls in file_info[&#x27;classes&#x27;]:
+                            for method in cls[&#x27;methods&#x27;]:
+                                if method[&#x27;name&#x27;] == node.name and &#x27;decorators&#x27; not in method:
+                                    method[&#x27;decorators&#x27;] = decorators
+                
+                # Extract function return hint if available
+                if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+                    if node.returns:
+                        return_hint = self._get_name(node.returns)
+                        
+                        # Add return hint to the function info
+                        for func in file_info[&#x27;functions&#x27;]:
+                            if func[&#x27;name&#x27;] == node.name and &#x27;return_hint&#x27; not in func:
+                                func[&#x27;return_hint&#x27;] = return_hint
+                        
+                        # Check methods in all classes
+                        for cls in file_info[&#x27;classes&#x27;]:
+                            for method in cls[&#x27;methods&#x27;]:
+                                if method[&#x27;name&#x27;] == node.name and &#x27;return_hint&#x27; not in method:
+                                    method[&#x27;return_hint&#x27;] = return_hint
+                
+            # Generate descriptions for functions and methods based on docstrings, args, and return hints
+            self._generate_function_descriptions(file_info)
+                
+            # No longer needed as we process top-level functions directly from tree.body:
+            # Extract top-level functions
+            # elif isinstance(node, ast.FunctionDef) and isinstance(node.parent, ast.Module):
+            
+            return file_info
+            
+        except Exception as e:
+            print(f&quot;Error parsing {file_path}: {e}&quot;)
+            return {
+                &#x27;path&#x27;: file_path,
+                &#x27;name&#x27;: os.path.basename(file_path),
+                &#x27;error&#x27;: str(e)
+            }
+    
+    def _get_name(self, node):
+        &quot;&quot;&quot;Extract the name from an AST node.&quot;&quot;&quot;
+        if isinstance(node, ast.Name):
+            return node.id
+        elif isinstance(node, ast.Attribute):
+            return f&quot;{self._get_name(node.value)}.{node.attr}&quot;
+        else:
+            return &quot;Unknown&quot;
+    
+    def _extract_args(self, args):
+        &quot;&quot;&quot;Extract function/method arguments.&quot;&quot;&quot;
+        arg_list = []
+        
+        # Add positional arguments
+        for arg in args.args:
+            arg_info = {&#x27;name&#x27;: arg.arg, &#x27;annotation&#x27;: None, &#x27;default&#x27;: None}
+            if arg.annotation:
+                arg_info[&#x27;annotation&#x27;] = self._get_name(arg.annotation)
+            arg_list.append(arg_info)
+        
+        # Add defaults for positional arguments
+        if args.defaults:
+            default_offset = len(args.args) - len(args.defaults)
+            for i, default in enumerate(args.defaults):
+                arg_index = default_offset + i
+                if arg_index &lt; len(arg_list):
+                    arg_list[arg_index][&#x27;default&#x27;] = &quot;has_default&quot;  # Just indicate there&#x27;s a default
+        
+        # Add *args if present
+        if args.vararg:
+            arg_list.append({
+                &#x27;name&#x27;: f&quot;*{args.vararg.arg}&quot;,
+                &#x27;annotation&#x27;: None if not args.vararg.annotation else self._get_name(args.vararg.annotation),
+                &#x27;default&#x27;: None
+            })
+        
+        # Add **kwargs if present
+        if args.kwarg:
+            arg_list.append({
+                &#x27;name&#x27;: f&quot;**{args.kwarg.arg}&quot;,
+                &#x27;annotation&#x27;: None if not args.kwarg.annotation else self._get_name(args.kwarg.annotation),
+                &#x27;default&#x27;: None
+            })
+        
+        return arg_list
+        
+    def _generate_function_descriptions(self, file_info):
+        &quot;&quot;&quot;
+        Generate descriptive summaries for functions and methods based on their 
+        signatures, docstrings, arguments, and return hints.
+        &quot;&quot;&quot;
+        # Process top-level functions
+        for func in file_info[&#x27;functions&#x27;]:
+            description = self._create_function_description(
+                func[&#x27;name&#x27;], 
+                func.get(&#x27;args&#x27;, []), 
+                func.get(&#x27;doc_string&#x27;, &#x27;&#x27;),
+                func.get(&#x27;return_hint&#x27;, None),
+                func.get(&#x27;decorators&#x27;, [])
+            )
+            func[&#x27;description&#x27;] = description
+            
+        # Process methods in all classes
+        for cls in file_info[&#x27;classes&#x27;]:
+            for method in cls[&#x27;methods&#x27;]:
+                # Include class context in method descriptions
+                description = self._create_function_description(
+                    method[&#x27;name&#x27;], 
+                    method.get(&#x27;args&#x27;, []), 
+                    method.get(&#x27;doc_string&#x27;, &#x27;&#x27;),
+                    method.get(&#x27;return_hint&#x27;, None),
+                    method.get(&#x27;decorators&#x27;, []),
+                    class_name=cls[&#x27;name&#x27;]
+                )
+                method[&#x27;description&#x27;] = description
+                
+    def _create_function_description(self, name, args, docstring, return_hint=None, 
+                                     decorators=None, class_name=None):
+        &quot;&quot;&quot;
+        Create a descriptive summary of a function or method based on available information.
+        
+        Args:
+            name (str): Function or method name
+            args (list): List of argument dictionaries
+            docstring (str): Function or method docstring
+            return_hint (str): Return type annotation if available
+            decorators (list): List of decorator names if available
+            class_name (str): Class name if this is a method
+            
+        Returns:
+            str: A descriptive summary of the function or method
+        &quot;&quot;&quot;
+        # Start with the function type (method or function)
+        if class_name:
+            description = f&quot;Method &#x27;{name}&#x27; in class &#x27;{class_name}&#x27;&quot;
+        else:
+            description = f&quot;Function &#x27;{name}&#x27;&quot;
+            
+        # Add decorator information
+        if decorators and len(decorators) &gt; 0:
+            decorator_str = &#x27;, &#x27;.join(f&#x27;@{d}&#x27; for d in decorators)
+            description += f&quot; decorated with {decorator_str}&quot;
+            
+        # Add argument information
+        if args:
+            arg_names = [arg[&#x27;name&#x27;] for arg in args]
+            description += f&quot; takes parameters: {&#x27;, &#x27;.join(arg_names)}&quot;
+            
+            # Add information about typed arguments
+            typed_args = [arg for arg in args if arg.get(&#x27;annotation&#x27;)]
+            if typed_args:
+                typed_arg_str = &#x27;, &#x27;.join(f&quot;{arg[&#x27;name&#x27;]}: {arg[&#x27;annotation&#x27;]}&quot; for arg in typed_args)
+                description += f&quot;. Typed parameters: {typed_arg_str}&quot;
+                
+        # Add return type if available
+        if return_hint:
+            description += f&quot;. Returns {return_hint}&quot;
+            
+        # Add docstring summary if available
+        if docstring:
+            # Extract the first sentence or line as a summary
+            summary = docstring.strip().split(&#x27;\n&#x27;)[0].strip()
+            # If summary is very long, truncate it
+            if len(summary) &gt; 100:
+                summary = summary[:97] + &quot;...&quot;
+            description += f&quot;. Summary: {summary}&quot;
+            
+        return description
+
+
+def parse_python_file(file_path: str) -&gt; Dict[str, Any]:
+    &quot;&quot;&quot;
+    Utility function to parse a single Python file using the AST parser.
+    
+    Args:
+        file_path (str): Path to the Python file to parse
+        
+    Returns:
+        Dict[str, Any]: Structured information about the file
+    &quot;&quot;&quot;
+    parser = PythonAstParser()
+    return parser.parse_file(file_path)
+
+
+def parse_python_files(directory_path: str) -&gt; List[Dict[str, Any]]:
+    &quot;&quot;&quot;
+    Parse all Python files in the given directory and its subdirectories.
+    
+    Args:
+        directory_path (str): Path to the directory containing Python files
+        
+    Returns:
+        List[Dict[str, Any]]: List of structured information about each file
+    &quot;&quot;&quot;
+    results = []
+    for root, _, files in os.walk(directory_path):
+        for file in files:
+            if file.endswith(&#x27;.py&#x27;):
+                file_path = os.path.join(root, file)
+                file_info = parse_python_file(file_path)
+                results.append(file_info)
+    return results
+</pre>
+    </div>
+</body>
+</html>

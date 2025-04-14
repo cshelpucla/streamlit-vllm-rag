@@ -1,0 +1,8 @@
+dash
+llama-index
+llama-index-llms-openai # Or your preferred LLM provider
+llama-index-embeddings-huggingface # Or your preferred embedding provider
+nest_asyncio
+ast
+typing
+pathlib

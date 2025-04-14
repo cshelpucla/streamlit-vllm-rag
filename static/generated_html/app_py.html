@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>app.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/app.py</div>
+        <pre>import dash
+import dash_bootstrap_components as dbc
+import os # Keep os import if needed for run command later
+
+# Import components from the src package
+from src.layout import create_layout
+from src.callbacks import register_callbacks
+# Configuration might be implicitly handled by callbacks now,
+# but importing them ensures they are loaded if needed elsewhere.
+from src.config import configure_llama_index, initialize_chroma
+
+# --- Initialize Dash App ---
+# Using Bootstrap themes for better styling
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+server = app.server # Expose Flask server for potential WSGI deployment
+
+# --- App State Initialization ---
+# Use app.server to store state accessible across callbacks
+# Initialize these attributes to None or default values
+app.server.directory_path = None
+app.server.index = None
+app.server.index_type = None # Added to track index type (&#x27;vector&#x27; or &#x27;graph&#x27;)
+
+# Note: CHROMA_COLLECTION is now initialized within callbacks.py
+
+# --- Configure LlamaIndex and ChromaDB (Optional Initial Setup) ---
+# The original code configured these within callbacks.
+# If you prefer to configure ONCE at startup (and settings are static),
+# uncomment the following lines. Otherwise, configuration happens in callbacks.
+# print(&quot;Performing initial LlamaIndex and ChromaDB setup...&quot;, flush=True)
+# try:
+#     EMBED_MODEL, LLM = configure_llama_index()
+#     # The collection is now initialized and stored in callbacks.py
+#     # COLLECTION = initialize_chroma() # This might be redundant now
+#     print(&quot;Initial setup complete.&quot;, flush=True)
+# except Exception as e:
+#     print(f&quot;Error during initial setup: {e}&quot;, flush=True)
+    # Decide how to handle startup errors (e.g., exit, log, continue with limited functionality)
+
+# --- App Layout ---
+app.layout = create_layout()
+
+# --- Register Callbacks ---
+# The callbacks need access to the &#x27;app&#x27; object to register themselves
+# and potentially access app.server state.
+register_callbacks(app)
+
+# --- Run the App ---
+if __name__ == &#x27;__main__&#x27;:
+    # Set debug=False for production
+    # Use host=&#x27;0.0.0.0&#x27; to make it accessible on the network
+    app.run(debug=True, host=&#x27;0.0.0.0&#x27;, port=8050) # Default Dash port is 8050
+</pre>
+    </div>
+</body>
+</html>

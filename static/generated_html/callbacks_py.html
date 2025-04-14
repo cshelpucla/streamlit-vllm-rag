@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>callbacks.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/callbacks.py</div>
+        <pre>\
+import dash
+from dash.dependencies import Input, Output, State, ALL
+from dash import html, dcc, ctx # Ensure dcc and ctx are imported
+import dash_bootstrap_components as dbc
+import os
+import base64
+import io
+import time
+import threading
+from threading import Event
+
+# Import necessary functions and classes from your src package
+from src.config import configure_llama_index, initialize_chroma
+from src.indexing import perform_indexing, perform_graph_indexing # Import both indexing functions
+from src.query import handle_query
+from src.graph_persistence import load_most_recent_index # Import function to load most recent index
+from src.file_explainer import explain_file # Import file explainer function
+
+# Global variables to hold configured models and Chroma collection (initialized once)
+# These are configured when the first callback needing them runs.
+EMBED_MODEL = None
+LLM = None
+CHROMA_COLLECTION = None
+
+# Global variables for query cancellation
+QUERY_RUNNING = False
+CANCEL_EVENT = Event()  # Used to signal query cancellation
+
+def register_callbacks(app):
+    &quot;&quot;&quot;Registers all callbacks for the Dash application.&quot;&quot;&quot;
+    global EMBED_MODEL, LLM, CHROMA_COLLECTION
+
+    def ensure_configuration():
+        &quot;&quot;&quot;Internal helper to configure LlamaIndex and ChromaDB if not already done.&quot;&quot;&quot;
+        global EMBED_MODEL, LLM, CHROMA_COLLECTION
+        if EMBED_MODEL is None or LLM is None:
+            print(&quot;Configuring LlamaIndex models...&quot;, flush=True)
+            EMBED_MODEL, LLM = configure_llama_index()
+            print(&quot;LlamaIndex models configured.&quot;, flush=True)
+        if CHROMA_COLLECTION is None:
+            print(&quot;Initializing ChromaDB collection...&quot;, flush=True)
+            CHROMA_COLLECTION = initialize_chroma()
+            print(&quot;ChromaDB collection initialized.&quot;, flush=True)
+            
+        # Try to load the most recent PropertyGraph index if one exists
+        if not hasattr(app.server, &#x27;index&#x27;) or app.server.index is None:
+            print(&quot;Looking for existing PropertyGraph index to load...&quot;, flush=True)
+            graph_index = load_most_recent_index()
+            if graph_index:
+                print(&quot;Successfully loaded PropertyGraph index from disk.&quot;, flush=True)
+                app.server.index = graph_index
+                app.server.index_type = &#x27;graph&#x27;
+                return True
+            else:
+                print(&quot;No existing PropertyGraph index found or load failed.&quot;, flush=True)
+                
+        return False
+
+    @app.callback(
+        [Output(&#x27;upload-status&#x27;, &#x27;children&#x27;),
+         Output(&#x27;file-list-container&#x27;, &#x27;children&#x27;),
+         Output(&#x27;directory-path-input&#x27;, &#x27;value&#x27;)],
+        [Input(&#x27;upload-directory&#x27;, &#x27;contents&#x27;)],
+        [State(&#x27;upload-directory&#x27;, &#x27;filename&#x27;),
+         State(&#x27;upload-directory&#x27;, &#x27;last_modified&#x27;),
+         State(&#x27;directory-path-input&#x27;, &#x27;value&#x27;)]
+    )
+    def update_directory_path(list_of_contents, list_of_names, list_of_dates, current_path_input):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            # No trigger, return default empty state
+            return None, None, current_path_input or &quot;&quot;
+
+        trigger_id = ctx.triggered[0][&#x27;prop_id&#x27;].split(&#x27;.&#x27;)[0]
+
+        if trigger_id == &#x27;upload-directory&#x27; and list_of_contents is not None:
+            # Assuming the user uploads files from a single directory structure
+            # We need to infer the common directory path.
+            # This part is tricky with dcc.Upload as it gives file paths, not a directory.
+            # A common approach is to take the directory of the *first* uploaded file.
+            if list_of_names:
+                # Heuristic: Assume the first file&#x27;s path indicates the intended directory
+                # This might need refinement depending on how users upload.
+                # For simplicity, let&#x27;s just display the names for now.
+                # A better approach might involve asking the user to confirm the root.
+
+                # Let&#x27;s try to find a common parent directory if multiple files are uploaded
+                common_path = os.path.commonpath([name for name in list_of_names if &#x27;/&#x27; in name or &#x27;\\\\&#x27; in name]) if list_of_names else None
+                if not common_path and list_of_names: # Handle case where only files in root are uploaded
+                     common_path = &quot;.&quot; # Or decide on a different representation
+
+                # Store the inferred path (or maybe just signal readiness)
+                # For now, let&#x27;s just update the input field if it&#x27;s empty
+                derived_path = common_path if common_path else (os.path.dirname(list_of_names[0]) if list_of_names else &quot;&quot;)
+
+                # Display uploaded file names
+                file_list_items = [html.Li(name) for name in list_of_names]
+                file_list_display = html.Ul(file_list_items)
+                status_message = dbc.Alert(f&quot;Received {len(list_of_names)} files. Using inferred path: &#x27;{derived_path}&#x27;. Please verify.&quot;, color=&quot;info&quot;)
+
+                # Update the app state (directory path)
+                app.server.directory_path = derived_path # Store the derived path
+
+                # Update the input field only if it was empty or to reflect the new upload
+                return status_message, file_list_display, derived_path
+
+            else:
+                return dbc.Alert(&quot;No files uploaded.&quot;, color=&quot;warning&quot;), None, current_path_input
+
+        # If triggered by something else or no content, keep existing state
+        # This part might need adjustment based on desired behavior for manual path input
+        return dash.no_update, dash.no_update, current_path_input
+
+
+    @app.callback(
+        Output(&#x27;indexing-status&#x27;, &#x27;children&#x27;),
+        [Input(&#x27;index-button&#x27;, &#x27;n_clicks&#x27;)],
+        [State(&#x27;directory-path-input&#x27;, &#x27;value&#x27;),
+         State(&#x27;indexing-method-radio&#x27;, &#x27;value&#x27;)] # Get selected indexing method
+    )
+    def index_files(n_clicks, directory_path, indexing_method):
+        if n_clicks is None or n_clicks &lt; 1:
+            return dash.no_update # Or &quot;Click &#x27;Index Files&#x27; to begin.&quot;
+
+        # Ensure models/DB are configured before indexing
+        ensure_configuration()
+
+        # Use the path from the input field as the primary source
+        final_directory_path = directory_path.strip() if directory_path else None
+
+        if not final_directory_path:
+             # Fallback to path derived from upload if input is empty
+             final_directory_path = getattr(app.server, &#x27;directory_path&#x27;, None)
+
+        if not final_directory_path:
+            print(&quot;Indexing attempt failed: No directory path provided.&quot;, flush=True)
+            return dbc.Alert(&quot;Error: Please select or enter a directory path.&quot;, color=&quot;danger&quot;)
+
+        print(f&quot;Starting indexing for directory: {final_directory_path} using method: {indexing_method}&quot;, flush=True)
+        status_message = &quot;Starting indexing...&quot;
+        index_object = None
+        start_time = time.time()
+
+        try:
+            if indexing_method == &#x27;vector&#x27;:
+                print(&quot;Using Vector Store (ChromaDB) indexing.&quot;, flush=True)
+                status_message, index_object = perform_indexing(final_directory_path, CHROMA_COLLECTION, EMBED_MODEL)
+                app.server.index_type = &#x27;vector&#x27; if index_object else None
+            elif indexing_method == &#x27;graph&#x27;:
+                print(&quot;Using Property Graph (Simple) indexing.&quot;, flush=True)
+                # Pass LLM and Embed Model from global scope (or Settings)
+                status_message, index_object = perform_graph_indexing(final_directory_path, LLM, EMBED_MODEL)
+                app.server.index_type = &#x27;graph&#x27; if index_object else None
+            else:
+                status_message = &quot;Error: Unknown indexing method selected.&quot;
+                app.server.index_type = None
+
+            # Store the index object in the app server state regardless of type
+            app.server.index = index_object
+
+            end_time = time.time()
+            print(f&quot;Indexing process completed in {end_time - start_time:.2f} seconds.&quot;, flush=True)
+
+            if &quot;Error&quot; in status_message or &quot;Warning&quot; in status_message:
+                 print(f&quot;Indexing status: {status_message}&quot;, flush=True)
+                 return dbc.Alert(status_message, color=&quot;danger&quot; if &quot;Error&quot; in status_message else &quot;warning&quot;)
+            else:
+                 print(f&quot;Indexing successful: {status_message}&quot;, flush=True)
+                 return dbc.Alert(status_message, color=&quot;success&quot;)
+
+        except Exception as e:
+            app.server.index = None
+            app.server.index_type = None
+            print(f&quot;Unhandled exception during indexing: {e}&quot;, flush=True)
+            # import traceback
+            # print(traceback.format_exc(), flush=True)
+            return dbc.Alert(f&quot;An unexpected error occurred during indexing: {e}&quot;, color=&quot;danger&quot;)
+
+
+    @app.callback(
+        [
+            Output(&#x27;query-results&#x27;, &#x27;children&#x27;),
+            Output(&#x27;spinner-container&#x27;, &#x27;style&#x27;),
+            Output(&#x27;cancel-query-button&#x27;, &#x27;disabled&#x27;)
+        ],
+        [Input(&#x27;query-button&#x27;, &#x27;n_clicks&#x27;),
+         Input(&#x27;cancel-query-button&#x27;, &#x27;n_clicks&#x27;)],
+        [State(&#x27;query-input&#x27;, &#x27;value&#x27;)]
+    )
+    def run_query(query_n_clicks, cancel_n_clicks, query_text):
+        global QUERY_RUNNING, CANCEL_EVENT
+        
+        # Get the ID of the component that triggered this callback
+        triggered_id = ctx.triggered_id if ctx.triggered_id else &#x27;no-id&#x27;
+        
+        # Show spinner by making its container visible
+        spinner_visible = {&quot;height&quot;: &quot;50px&quot;, &quot;display&quot;: &quot;block&quot;}
+        spinner_hidden = {&quot;height&quot;: &quot;50px&quot;, &quot;display&quot;: &quot;none&quot;}
+        
+        # Handle cancel button click
+        if triggered_id == &#x27;cancel-query-button&#x27;:
+            if QUERY_RUNNING:
+                print(&quot;Query cancellation requested&quot;, flush=True)
+                CANCEL_EVENT.set()  # Signal cancellation
+                return dbc.Alert(&quot;Query cancelled by user.&quot;, color=&quot;warning&quot;), spinner_hidden, True
+            return dash.no_update, dash.no_update, dash.no_update
+            
+        # Handle initial state or no clicks
+        if query_n_clicks is None or query_n_clicks &lt; 1:
+            return &quot;&quot;, spinner_hidden, True  # No query submitted yet, spinner hidden, cancel button disabled
+
+        # Ensure models are configured before querying
+        ensure_configuration()
+
+        # Retrieve the index object and its type from app state
+        index = getattr(app.server, &#x27;index&#x27;, None)
+        index_type = getattr(app.server, &#x27;index_type&#x27;, None) # Get the stored index type
+
+        if index is None:
+            print(&quot;Query attempt failed: Index not available.&quot;, flush=True)
+            return dbc.Alert(&quot;Error: Please index files before querying.&quot;, color=&quot;danger&quot;), spinner_hidden, True
+
+        if not query_text:
+            print(&quot;Query attempt failed: No query text.&quot;, flush=True)
+            return dbc.Alert(&quot;Please enter a query.&quot;, color=&quot;warning&quot;), spinner_hidden, True
+
+        print(f&quot;Handling query with index type: {index_type}&quot;, flush=True)
+        
+        # Reset cancellation event
+        CANCEL_EVENT.clear()
+        
+        try:
+            # Mark query as running and enable cancel button
+            QUERY_RUNNING = True
+            
+            # Process the query with the spinner visible
+            print(&quot;Starting query execution - showing spinner&quot;, flush=True)
+            
+            # Run query with cancellation support
+            def query_with_cancel():
+                nonlocal result
+                try:
+                    result = handle_query(query_text, index, LLM, cancel_event=CANCEL_EVENT)
+                except Exception as e:
+                    result = dbc.Alert(f&quot;An error occurred while processing your query: {str(e)}&quot;, color=&quot;danger&quot;)
+                finally:
+                    QUERY_RUNNING = False
+            
+            result = None
+            query_thread = threading.Thread(target=query_with_cancel)
+            query_thread.start()
+            
+            # Wait for the thread to complete or a timeout (if needed)
+            query_thread.join(timeout=None)  # No timeout, will return when query completes
+            
+            print(&quot;Query execution complete - hiding spinner&quot;, flush=True)
+            
+            # Handle potential cancellation
+            if CANCEL_EVENT.is_set():
+                return dbc.Alert(&quot;Query cancelled by user.&quot;, color=&quot;warning&quot;), spinner_hidden, True
+                
+            # Return result and hide spinner
+            return result, spinner_hidden, True
+            
+        except Exception as e:
+            QUERY_RUNNING = False
+            print(f&quot;Error during query execution: {e}&quot;, flush=True)
+            # Hide spinner, show error, disable cancel button
+            return dbc.Alert(f&quot;An error occurred while processing your query: {str(e)}&quot;, color=&quot;danger&quot;), spinner_hidden, True
+            
+    @app.callback(
+        Output({&quot;type&quot;: &quot;file-explanation&quot;, &quot;index&quot;: dash.MATCH}, &quot;children&quot;),
+        Output({&quot;type&quot;: &quot;file-explanation&quot;, &quot;index&quot;: dash.MATCH}, &quot;style&quot;),
+        Input({&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: dash.MATCH}, &quot;n_clicks&quot;),
+        State({&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: dash.MATCH}, &quot;id&quot;),
+        prevent_initial_call=True
+    )
+    def show_file_explanation(n_clicks, button_id):
+        &quot;&quot;&quot;
+        Handle clicks on &quot;Explain&quot; buttons to show file explanations.
+        
+        Args:
+            n_clicks: Number of times the button has been clicked
+            button_id: The ID of the button that was clicked, containing the file path
+        
+        Returns:
+            Tuple of (explanation content, display style)
+        &quot;&quot;&quot;
+        if n_clicks is None or n_clicks &lt; 1:
+            return dash.no_update, dash.no_update
+        
+        file_path = button_id[&quot;index&quot;]
+        print(f&quot;Generating explanation for file: {file_path}&quot;, flush=True)
+        
+        # Show loading spinner
+        explanation_content = [
+            dbc.Spinner(spinner_style={&quot;width&quot;: &quot;3rem&quot;, &quot;height&quot;: &quot;3rem&quot;}),
+            html.Div(&quot;Generating explanation, please wait...&quot;, className=&quot;text-muted mt-2&quot;)
+        ]
+        # Show the explanation container
+        container_style = {&quot;display&quot;: &quot;block&quot;, &quot;padding&quot;: &quot;10px&quot;, &quot;backgroundColor&quot;: &quot;#f0f7ff&quot;, &quot;borderRadius&quot;: &quot;5px&quot;}
+        
+        # We need to return this immediately to show the loading state
+        return explanation_content, container_style
+        
+    @app.callback(
+        Output({&quot;type&quot;: &quot;file-explanation&quot;, &quot;index&quot;: dash.MATCH}, &quot;children&quot;, allow_duplicate=True),
+        Input({&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: dash.MATCH}, &quot;n_clicks&quot;),
+        State({&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: dash.MATCH}, &quot;id&quot;),
+        prevent_initial_call=True,
+        background=True,
+        running=[
+            (Output({&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: dash.MATCH}, &quot;disabled&quot;), True, False)
+        ]
+    )
+    def generate_file_explanation(n_clicks, button_id):
+        &quot;&quot;&quot;
+        Generate an explanation for the file using the vLLM-based file explainer.
+        This is a separate callback that runs in the background.
+        
+        Args:
+            n_clicks: Number of times the button has been clicked
+            button_id: The ID of the button that was clicked, containing the file path
+            
+        Returns:
+            Content for the explanation container
+        &quot;&quot;&quot;
+        if n_clicks is None or n_clicks &lt; 1:
+            raise dash.exceptions.PreventUpdate
+            
+        file_path = button_id[&quot;index&quot;]
+        print(f&quot;Processing explanation for file: {file_path}&quot;, flush=True)
+        
+        try:
+            # Call the file explainer
+            explanation_data, error = explain_file(file_path)
+            
+            if error:
+                print(f&quot;Error explaining file {file_path}: {error}&quot;, flush=True)
+                return [
+                    html.H5(&quot;Error Generating Explanation&quot;, className=&quot;text-danger&quot;),
+                    html.P(error)
+                ]
+            
+            print(f&quot;Successfully generated explanation for {file_path}&quot;, flush=True)
+            
+            return [
+                html.H5(&quot;File Explanation&quot;, className=&quot;mb-3&quot;),
+                html.Div([
+                    html.Strong(&quot;File: &quot;), html.Span(explanation_data[&quot;file_name&quot;]),
+                    html.Br(),
+                    html.Strong(&quot;Type: &quot;), html.Span(explanation_data[&quot;file_type&quot;]),
+                    html.Br(),
+                    html.Strong(&quot;Processing Time: &quot;), html.Span(f&quot;{explanation_data[&#x27;processing_time&#x27;]} seconds&quot;)
+                ], className=&quot;mb-3&quot;),
+                html.Hr(),
+                dcc.Markdown(explanation_data[&quot;explanation&quot;], className=&quot;explanation-text&quot;)
+            ]
+            
+        except Exception as e:
+            print(f&quot;Exception while generating explanation: {str(e)}&quot;, flush=True)
+            return [
+                html.H5(&quot;Error Generating Explanation&quot;, className=&quot;text-danger&quot;),
+                html.P(f&quot;An unexpected error occurred: {str(e)}&quot;)
+            ]
+</pre>
+    </div>
+</body>
+</html>

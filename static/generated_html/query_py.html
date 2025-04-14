@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>query.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/query.py</div>
+        <pre>\
+import time
+import os
+import asyncio
+import nest_asyncio
+import dash_bootstrap_components as dbc
+# Make sure dcc is imported
+from dash import html, dcc
+from llama_index.core import Settings # Import Settings to potentially access configured LLM
+# Correct the import path for Response again
+from llama_index.core.base.response.schema import Response
+# Import the HTML conversion utility
+from src.html_utils import convert_file_to_html
+# Import the file explainer
+from src.file_explainer import explain_file
+
+# Apply nest_asyncio to enable nested event loops
+nest_asyncio.apply()
+
+def handle_query(query_text, index, llm, cancel_event=None):
+    &quot;&quot;&quot;
+    Processes a user query using the LlamaIndex query engine and displays results with sources.
+    Works with both VectorStoreIndex and PropertyGraphIndex.
+
+    Args:
+        query_text (str): The user&#x27;s query.
+        index (Union[VectorStoreIndex, PropertyGraphIndex]): The LlamaIndex index object.
+        llm: The configured LLM instance from LlamaIndex.
+        cancel_event (threading.Event, optional): Event to signal query cancellation.
+
+    Returns:
+        dash component: HTML Div containing the query results, sources, or an error alert.
+    &quot;&quot;&quot;
+    if not query_text:
+        print(&quot;Query attempt failed: No query text provided.&quot;, flush=True)
+        return dbc.Alert(&quot;Please enter a query.&quot;, color=&quot;warning&quot;)
+
+    if index is None:
+        print(&quot;Error: Index is None. Aborting query.&quot;, flush=True)
+        return dbc.Alert(&quot;Error: Please index the files before querying.&quot;, color=&quot;danger&quot;)
+
+    print(f&quot;Index type: {type(index)}. Proceeding with query.&quot;, flush=True)
+    try:
+        # Configure query engine.
+        # For PropertyGraphIndex, we might need specific retriever modes or query kwargs.
+        # Let&#x27;s try the default first. LlamaIndex often handles this transparently.
+        # If issues arise, we might need: index.as_query_engine(retriever_mode=&quot;graph&quot;, ...)
+        query_engine_kwargs = {
+            &quot;llm&quot;: llm,
+            &quot;similarity_top_k&quot;: 3, # Relevant for vector index, might be ignored/different for graph
+            &quot;include_metadata&quot;: True # Ensure metadata (like file_path) is included if available
+        }
+        # Add specific kwargs if it&#x27;s a graph index (adjust based on LlamaIndex version/behavior)
+        # from llama_index.core import PropertyGraphIndex # Import if needed for type check
+        # if isinstance(index, PropertyGraphIndex):
+        #     query_engine_kwargs[&quot;retriever_mode&quot;] = &quot;graph&quot; # Example, check documentation
+        #     query_engine_kwargs[&quot;verbose&quot;] = True # Example for debugging graph queries
+
+        print(f&quot;Creating query engine with kwargs: {query_engine_kwargs}&quot;, flush=True)
+        query_engine = index.as_query_engine(**query_engine_kwargs)
+        print(&quot;Query engine created.&quot;, flush=True)
+
+        # Perform query using async approach
+        print(f&quot;Performing query: &#x27;{query_text}&#x27;&quot;, flush=True)
+        print(&quot;--- Calling LLM via query_engine.aquery() --- &quot;, flush=True)
+        start_time = time.time()
+        
+        # Check for cancellation before starting query
+        if cancel_event and cancel_event.is_set():
+            print(&quot;Query cancelled before execution&quot;, flush=True)
+            return dbc.Alert(&quot;Query cancelled by user.&quot;, color=&quot;warning&quot;)
+            
+        # Define an async function that includes cancellation checks
+        async def run_query_with_cancellation():
+            # Create a task for the query
+            query_task = asyncio.create_task(query_engine.aquery(query_text))
+            
+            # While the query is running, periodically check for cancellation
+            while not query_task.done():
+                if cancel_event and cancel_event.is_set():
+                    print(&quot;Cancellation requested during query execution&quot;, flush=True)
+                    # Try to cancel the asyncio task
+                    query_task.cancel()
+                    return None
+                # Wait a short time before checking again
+                await asyncio.sleep(0.1)
+                
+            # If we get here, the task completed without cancellation
+            return await query_task
+            
+        # Run the query with cancellation support
+        response_or_none = asyncio.get_event_loop().run_until_complete(run_query_with_cancellation())
+        
+        # Check if the query was cancelled
+        if cancel_event and cancel_event.is_set():
+            end_time = time.time()
+            print(f&quot;Query cancelled after {end_time - start_time:.2f} seconds&quot;, flush=True)
+            return dbc.Alert(&quot;Query cancelled by user.&quot;, color=&quot;warning&quot;)
+            
+        # If we get here, we have a valid response
+        response: Response = response_or_none
+        end_time = time.time()
+        print(&quot;--- LLM call via query_engine.aquery() completed --- &quot;, flush=True)
+        print(f&quot;Query completed in {end_time - start_time:.2f} seconds.&quot;, flush=True)
+        # print(f&quot;Raw response object: {response}&quot;, flush=True) # More detailed logging if needed
+
+        # Extract source file paths (might work differently for graph nodes)
+        source_files = set() # Use a set to store unique file paths
+        if response.source_nodes:
+            print(f&quot;Found {len(response.source_nodes)} source nodes.&quot;, flush=True)
+            for node_with_score in response.source_nodes:
+                node = node_with_score.node
+                # Graph nodes might have different metadata structure
+                file_path = node.metadata.get(&#x27;file_path&#x27;, None) # Safely get file_path
+                if file_path:
+                    source_files.add(file_path)
+                    # print(f&quot;  Source Node Score: {node_with_score.score:.4f}, File: {file_path}&quot;, flush=True)
+                else:
+                    # Log other potentially useful metadata for graph nodes
+                    print(f&quot;  Warning: Source node missing &#x27;file_path&#x27;. Metadata: {node.metadata}&quot;, flush=True)
+        else:
+            print(&quot;No source nodes found in the response.&quot;, flush=True)
+
+        # Create styled list items for source files with clickable links
+        source_list_items = []
+        if source_files:
+            # Ensure static directory exists for HTML files
+            static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), &#x27;static&#x27;, &#x27;generated_html&#x27;)
+            os.makedirs(static_dir, exist_ok=True)
+            
+            for file in sorted(list(source_files)):
+                try:
+                    # Convert file to HTML if it exists
+                    if os.path.exists(file):
+                        html_path = convert_file_to_html(file)
+                        # Create a card with a clickable link and explain button
+                        source_card = dbc.Card(
+                            dbc.CardBody([
+                                dbc.Row([
+                                    # File link column
+                                    dbc.Col([
+                                        html.A(
+                                            [
+                                                html.I(className=&quot;fas fa-file-code mr-2&quot;),  # File icon
+                                                html.Code(file, className=&quot;text-monospace&quot;)  # File path in monospace font
+                                            ],
+                                            href=html_path,  # Link to generated HTML
+                                            target=&quot;_blank&quot;,  # Open in new tab
+                                            className=&quot;text-decoration-none&quot;,  # Remove underline
+                                            title=&quot;Click to view file contents&quot;  # Tooltip
+                                        )
+                                    ], width=8),  # Take up 8/12 of the row
+                                    
+                                    # Explain button column
+                                    dbc.Col([
+                                        dbc.Button(
+                                            [html.I(className=&quot;fas fa-lightbulb mr-1&quot;), &quot;Explain&quot;],
+                                            id={&quot;type&quot;: &quot;explain-button&quot;, &quot;index&quot;: file},
+                                            color=&quot;info&quot;,
+                                            size=&quot;sm&quot;,
+                                            className=&quot;float-right&quot;
+                                        )
+                                    ], width=4)  # Take up 4/12 of the row
+                                ]),
+                                
+                                # Container for explanation, initially hidden
+                                html.Div(
+                                    id={&quot;type&quot;: &quot;file-explanation&quot;, &quot;index&quot;: file},
+                                    style={&quot;display&quot;: &quot;none&quot;},
+                                    className=&quot;mt-3&quot;
+                                )
+                            ]),
+                            className=&quot;mb-2 p-2&quot;,  # Add margin and padding
+                            style={&#x27;backgroundColor&#x27;: &#x27;#f8f9fa&#x27;}  # Light background color
+                        )
+                    else:
+                        # File doesn&#x27;t exist, show non-clickable version
+                        source_card = dbc.Card(
+                            dbc.CardBody([
+                                html.I(className=&quot;fas fa-exclamation-triangle mr-2 text-warning&quot;),
+                                html.Code(file, className=&quot;text-monospace&quot;),
+                                html.Small(&quot; (file not found)&quot;, className=&quot;text-muted ml-2&quot;)
+                            ]),
+                            className=&quot;mb-2 p-2&quot;,
+                            style={&#x27;backgroundColor&#x27;: &#x27;#f8f9fa&#x27;}
+                        )
+                except Exception as e:
+                    print(f&quot;Error processing source file {file}: {e}&quot;, flush=True)
+                    # Create a card with error message
+                    source_card = dbc.Card(
+                        dbc.CardBody([
+                            html.Code(file, className=&quot;text-monospace&quot;),
+                            html.Small(f&quot; (error: {str(e)})&quot;, className=&quot;text-danger ml-2&quot;)
+                        ]),
+                        className=&quot;mb-2 p-2&quot;,
+                        style={&#x27;backgroundColor&#x27;: &#x27;#fff0f0&#x27;}  # Light red background for errors
+                    )
+                
+                source_list_items.append(html.Li(source_card, style={&#x27;listStyleType&#x27;: &#x27;none&#x27;}))  # Remove bullet points
+        else:
+            # Provide more context if no file paths found, especially for graph index
+            source_list_items.append(html.Li(&quot;No specific source files identified (metadata might differ for graph index).&quot;))
+
+
+        # Display results and sources
+        return html.Div([
+            html.H5(&quot;Query Result:&quot;),
+            html.P(f&quot;(Responded in {end_time - start_time:.2f} seconds)&quot;),
+            # Use dcc.Markdown to render the response string as HTML
+            dbc.Card(dbc.CardBody(dcc.Markdown(str(response.response), dangerously_allow_html=True))),
+            html.H6(&quot;Sources:&quot;, className=&quot;mt-4 mb-2&quot;), # Add margin
+            # Use a Div instead of Ul for cleaner rendering without default list styling
+            html.Div(source_list_items)
+        ])
+    except Exception as e:
+        print(f&quot;Error processing query: {e}&quot;, flush=True)
+        # import traceback
+        # print(traceback.format_exc(), flush=True) # Uncomment for detailed traceback
+        return dbc.Alert(f&quot;Error processing query: {e}&quot;, color=&quot;danger&quot;)
+
+</pre>
+    </div>
+</body>
+</html>

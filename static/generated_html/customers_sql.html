@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>customers.sql</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/customers.sql</div>
+        <pre>-- Customers table definition
+-- Stores customer information for order processing and CRM
+CREATE TABLE CUSTOMERS (
+    customer_id INT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    address_line1 VARCHAR(100),
+    address_line2 VARCHAR(100),
+    city VARCHAR(50),
+    state VARCHAR(50),
+    postal_code VARCHAR(20),
+    country VARCHAR(50) DEFAULT &#x27;USA&#x27;,
+    password_hash VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    loyalty_points INT DEFAULT 0,
+    date_registered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    notes TEXT
+);
+
+-- Create indexes for common customer lookups
+CREATE INDEX idx_customers_name ON CUSTOMERS(last_name, first_name);
+CREATE INDEX idx_customers_city ON CUSTOMERS(city);
+CREATE INDEX idx_customers_active ON CUSTOMERS(is_active);
+
+-- Ensure valid email format
+ALTER TABLE CUSTOMERS ADD CONSTRAINT check_email_format 
+CHECK (email ~* &#x27;^[A-Za-z0-9._%-]+@[A-Za-z0-9.-]+[.][A-Za-z]+$&#x27;);
+</pre>
+    </div>
+</body>
+</html>

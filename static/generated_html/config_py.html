@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>config.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/config.py</div>
+        <pre>\
+import os
+import requests
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+from llama_index.core import Settings
+from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.llms.openai_like import OpenAILike # Using OpenAILike as in the original final version
+import chromadb
+
+# Load environment variables
+load_dotenv()
+print(f&quot;Loaded VLLM_URL from .env: {os.getenv(&#x27;VLLM_URL&#x27;)}&quot;, flush=True)
+print(f&quot;Loaded OLLAMA_BASE_URL from .env: {os.getenv(&#x27;OLLAMA_BASE_URL&#x27;)}&quot;, flush=True)
+print(f&quot;Loaded EMBEDDING_MODEL from .env: {os.getenv(&#x27;EMBEDDING_MODEL&#x27;)}&quot;, flush=True)
+print(f&quot;Loaded MODEL_NAME from .env: {os.getenv(&#x27;MODEL_NAME&#x27;)}&quot;, flush=True)
+
+# --- Configuration Variables ---
+OLLAMA_BASE_URL = os.getenv(&quot;OLLAMA_BASE_URL&quot;, &quot;http://localhost:11434&quot;)
+EMBEDDING_MODEL_NAME = os.getenv(&quot;EMBEDDING_MODEL&quot;, &quot;nomic-embed-text&quot;)
+VLLM_API_URL = os.getenv(&quot;VLLM_URL&quot;, &quot;http://localhost:8000/v1&quot;) # Default if not set
+MODEL_NAME = os.getenv(&quot;MODEL_NAME&quot;, &quot;llama3&quot;) # Default if not set
+# Using the hardcoded URL from the original app.py for OpenAILike
+OPENAI_LIKE_API_BASE = &quot;http://192.168.68.91:8000/v1&quot;
+OPENAI_LIKE_API_KEY = &quot;fake&quot; # As used in the original
+
+# --- LlamaIndex Configuration ---
+def check_vllm_reachability(api_url):
+    &quot;&quot;&quot;Checks if the VLLM endpoint is reachable.&quot;&quot;&quot;
+    try:
+        parsed_url = urlparse(api_url)
+        base_vllm_url = f&quot;{parsed_url.scheme}://{parsed_url.netloc}&quot;
+        health_url = f&quot;{base_vllm_url}/health&quot;
+        print(f&quot;Attempting to reach VLLM at: {health_url}&quot;, flush=True)
+        response = requests.get(health_url, timeout=5)
+        response.raise_for_status()
+        print(f&quot;VLLM endpoint reachable. Status code: {response.status_code}&quot;, flush=True)
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f&quot;Warning: Could not reach VLLM endpoint at {health_url}. Error: {e}&quot;, flush=True)
+        # Depending on requirements, you might want to raise an error here
+        # raise ConnectionError(f&quot;Failed to connect to VLLM at {health_url}&quot;) from e
+        return False
+
+def configure_llama_index():
+    &quot;&quot;&quot;Configures LlamaIndex settings for embedding and LLM.&quot;&quot;&quot;
+    print(f&quot;Using Ollama Embedding URL: {OLLAMA_BASE_URL}&quot;, flush=True)
+    print(f&quot;Using Embedding Model: {EMBEDDING_MODEL_NAME}&quot;, flush=True)
+    embed_model = OllamaEmbedding(
+        model_name=EMBEDDING_MODEL_NAME,
+        base_url=OLLAMA_BASE_URL,
+    )
+
+    print(f&quot;Using LLM Model: {MODEL_NAME}&quot;, flush=True)
+    print(f&quot;Using OpenAILike API Base: {OPENAI_LIKE_API_BASE}&quot;, flush=True)
+
+    # Check reachability before initializing LLM
+    # Using OPENAI_LIKE_API_BASE for the check as it&#x27;s the one being used
+    check_vllm_reachability(OPENAI_LIKE_API_BASE)
+
+    # Using OpenAILike as it was the final configuration in the original app.py
+    llm = OpenAILike(
+        model=MODEL_NAME,
+        api_base=OPENAI_LIKE_API_BASE,
+        api_key=OPENAI_LIKE_API_KEY,
+        temperature=0.7, # Added temperature, adjust as needed
+        context_window=25000,
+        is_chat_model=True,
+        is_function_calling_model=False,
+    )
+
+    # Configure LlamaIndex settings globally (can be overridden locally if needed)
+    Settings.embed_model = embed_model
+    Settings.llm = llm
+
+    print(&quot;LlamaIndex Settings configured.&quot;, flush=True)
+    return embed_model, llm # Return configured models
+
+# --- ChromaDB Initialization ---
+def initialize_chroma():
+    &quot;&quot;&quot;Initializes and returns the ChromaDB collection.&quot;&quot;&quot;
+    # Ensure the embedding model is configured in Settings first
+    if not Settings.embed_model:
+        # Try configuring if not already done (e.g., if called standalone)
+        print(&quot;Warning: Settings.embed_model not configured. Attempting configuration.&quot;, flush=True)
+        configure_llama_index()
+        if not Settings.embed_model:
+             raise ValueError(&quot;LlamaIndex Settings.embed_model must be configured before initializing Chroma.&quot;)
+
+    chroma_client = chromadb.PersistentClient(path=&quot;./chroma_db&quot;)
+    collection_name = &quot;python_code_collection&quot;
+    print(f&quot;Getting or creating Chroma collection: &#x27;{collection_name}&#x27;&quot;, flush=True)
+    collection = chroma_client.get_or_create_collection(collection_name)
+    print(f&quot;Chroma collection &#x27;{collection_name}&#x27; obtained/created successfully.&quot;, flush=True)
+    return collection
+
+# --- Initial Configuration Call (Optional) ---
+# You might call configure_llama_index() here once at startup
+# if you don&#x27;t want it called repeatedly in callbacks.
+# However, the original code called it in callbacks, so we&#x27;ll stick to that pattern
+# unless explicitly asked to change.
+# EMBED_MODEL, LLM = configure_llama_index()
+# COLLECTION = initialize_chroma()
+</pre>
+    </div>
+</body>
+</html>

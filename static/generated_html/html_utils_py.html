@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>html_utils.py</title>
+    <style>
+        body { 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .file-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }
+        .file-path {
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="file-container">
+        <div class="file-path">/home/cshelp/streamlit-vllm-rag/src/html_utils.py</div>
+        <pre>import os
+import html
+from dash import html as html_components
+from pathlib import Path
+
+def convert_file_to_html(file_path, output_dir=&#x27;static/generated_html&#x27;):
+    &quot;&quot;&quot;
+    Converts a text file to HTML format with styling and saves it in the specified output directory.
+    
+    Args:
+        file_path (str): Path to the file to convert
+        output_dir (str): Directory to save the HTML file
+        
+    Returns:
+        str: Path to the generated HTML file relative to the server root
+    &quot;&quot;&quot;
+    try:
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate a safe filename for the HTML output
+        base_name = os.path.basename(file_path)
+        safe_name = f&quot;{base_name.replace(&#x27;.&#x27;, &#x27;_&#x27;)}.html&quot;
+        output_path = os.path.join(output_dir, safe_name)
+        
+        # Read the original file
+        with open(file_path, &#x27;r&#x27;, encoding=&#x27;utf-8&#x27;) as f:
+            content = f.read()
+        
+        # Escape HTML special characters
+        escaped_content = html.escape(content)
+        
+        # Create styled HTML content
+        html_content = f&quot;&quot;&quot;&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;title&gt;{base_name}&lt;/title&gt;
+    &lt;style&gt;
+        body {{ 
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .file-container {{
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: white;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        pre {{
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: keep-all;
+        }}
+        .file-path {{
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }}
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;div class=&quot;file-container&quot;&gt;
+        &lt;div class=&quot;file-path&quot;&gt;{file_path}&lt;/div&gt;
+        &lt;pre&gt;{escaped_content}&lt;/pre&gt;
+    &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+&quot;&quot;&quot;
+        
+        # Write HTML file
+        with open(output_path, &#x27;w&#x27;, encoding=&#x27;utf-8&#x27;) as f:
+            f.write(html_content)
+            
+        # Return relative path that can be used in an href
+        return f&quot;/{output_path}&quot;
+        
+    except Exception as e:
+        print(f&quot;Error converting file to HTML: {e}&quot;)
+        return None
+</pre>
+    </div>
+</body>
+</html>
